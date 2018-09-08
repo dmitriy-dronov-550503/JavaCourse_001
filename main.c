@@ -8,7 +8,7 @@
 #define SET_BIT(PORT, BIT) (PORT) |= (BIT)
 #define CLEAR_BIT(PORT, BIT) (PORT) &= ~(BIT)
 #define INVERT_BIT(PORT, BIT) (PORT) ^= (BIT)
-#define IS_BIT_SET(PORT, BIT) ((PORT) & (BIT)) == 1
+#define IS_BIT_SET(PORT, BIT) (((PORT) & (BIT)) == 1)
 
 #define LED_BLINK(PORT, BIT, BLINK_TIME, ACTIVE) static uint32_t count##PORT##BIT = 0; \
     if (ACTIVE) { \
@@ -33,10 +33,18 @@ typedef uint8_t bool;
 
 #define true 1
 #define false 0
-#define CPU_CLK 4000000UL
-#define TIMER_DIV 4
-#define TIMER_CLK (CPU_CLK / TIMER_DIV)
-#define ms (TIMER_CLK / 1000)
+#define nsec_to_hz(ns) 1000000/ns
+
+//-----------------------------------------
+//  Shared variables
+//-----------------------------------------
+
+volatile uint32_t   timeLeft;           // timeout for button presses counter
+volatile uint8_t    buttonPressCount;   // number of button presses
+
+volatile bool isLed1Active;
+volatile bool isLed2Active;
+volatile bool isLed3Active;
 
 //-----------------------------------------
 //  Function declarations
@@ -45,8 +53,7 @@ typedef uint8_t bool;
 void InitPorts();
 void InitTimer2();
 
-inline void Delay(uint32_t count);
-
+void Delay(uint32_t count);
 void Animation(void);
 
 //-----------------------------------------
@@ -56,21 +63,19 @@ void Animation(void);
 void InitPorts()
 {
     // Initialize all ports
+    PADIR = 0;
+    PAOUT = 0;
     PBDIR = 0;
     PBOUT = 0;
     PCDIR = 0;
     PCOUT = 0;
     PDDIR = 0;
     PDOUT = 0;
-    P1DIR = 0;
-    P1OUT = 0;
-    P2DIR = 0;
-    P2OUT = 0;
 
     // Setup LED direction
-    P1DIR |= BIT0; // P1.0 LED 1
-    P8DIR |= BIT1; // P8.1 LED 2
-    P8DIR |= BIT2; // P8.2 LED 3
+    SET_BIT(P1DIR, BIT0);   // P1.0 LED 1
+    SET_BIT(P8DIR, BIT1);   // P8.1 LED 2
+    SET_BIT(P8DIR, BIT2);   // P8.2 LED 3
 
     // Turn off LEDs
     CLEAR_BIT(P1OUT, BIT0);
@@ -88,38 +93,21 @@ void InitPorts()
 
 void InitTimer2()
 {
-    // TODO: Is it necessary?
-    //TA2CCTL0 = CCIE;          // CCR0 interrupt enabled
-    TA2CCR0 = 5 * ms;           // Timer threshold
-    TA2CTL = TASSEL__SMCLK + ID__4 + TACLR + TAIE;  // SMCLK, div/4, clear TAR, enable interrupt
-    CLEAR_BIT(TA2CTL, TAIFG);   // Clear interrupt flag
-    SET_BIT(TA2CTL, MC_1);      // Start timer
+    // Button press count interval
+    //TA2CCTL0 = CCIE;                // CCR0 interrupt enabled
+    TA2CCR0 = nsec_to_hz(10000);    // Timer COMP0 interval 10 ms
 
+    // LED control interval
+    TA2CCTL1 = CCIE;                // CCR1 interrupt enabled
+    TA2CCR1 = nsec_to_hz(1000);     // Timer COMP1 interval 1 ms
+
+    // Setup and start timer
+    TA2CTL = TASSEL__SMCLK + ID__4 + TACLR + MC__CONTINOUS;
 }
-
-inline void Delay(uint32_t count)
-{
-    static volatile uint32_t i;
-    for(i = count; i; i--);
-}
-
-//-----------------------------------------
-//  Shared variables
-//-----------------------------------------
-
-volatile uint32_t   timeLeft;
-volatile uint8_t    buttonPressCount;
-volatile uint8_t    isTimerRun;
-
-//-----------------------------------------
-//  Main code
-//-----------------------------------------
 
 int main(void)
 {
-    WDTCTL = WDTPW + WDTHOLD;                 // Stop WDT
-
-    isTimerRun = false;
+    WDTCTL = WDTPW + WDTHOLD;   // stop watchdog timer
 
     InitPorts();
 
@@ -139,12 +127,12 @@ int main(void)
 #pragma vector=PORT2_VECTOR
 __interrupt void PORT2_ISR(void)
 {
-    if (!isTimerRun)
+    if (!IS_BIT_SET(TA2CCTL0, CCIE))
     {
         // Initialize decrement counter after the first button press
-        isTimerRun = true;
-        timeLeft = 100;
+        timeLeft = 100; // 1 second timeout to press button
         buttonPressCount = 1;
+        SET_BIT(TA2CCTL0, CCIE); // Start timer compare
     }
     else
     {
@@ -156,49 +144,53 @@ __interrupt void PORT2_ISR(void)
     CLEAR_BIT(P2IFG, BIT2);
 }
 
-// Timer2 A0 interrupt service routine
+// Timer2 COMP0 interrupt service routine
 #pragma vector=TIMER2_A0_VECTOR
 __interrupt void TIMER2_A0_ISR(void)
 {
-    // States for every LED
-    static bool isLed1Active = false;
-    static bool isLed2Active = false;
-    static bool isLed3Active = false;
+    // Decrement each time in interrupt
+    timeLeft--;
 
-    // Active during button timeout
-    if (isTimerRun)
+    if (timeLeft == 0)
     {
-        timeLeft--;
-
-        if (timeLeft == 0)
+        switch (buttonPressCount)
         {
-            isTimerRun = false;
-
-            switch (buttonPressCount)
-            {
-            case 1:
-                isLed1Active = !isLed1Active;
-                break;
-            case 2:
-                isLed2Active = !isLed2Active;
-                break;
-            case 3:
-                isLed3Active = !isLed3Active;
-                break;
-            default:
-                break;
-            }
+        case 1:
+            isLed1Active != isLed1Active;
+            break;
+        case 2:
+            isLed2Active != isLed2Active;
+            break;
+        case 3:
+            isLed3Active != isLed3Active;
+            break;
+        default:
+            break;
         }
-    }
 
-    LED_BLINK(P1OUT, BIT0, 50, isLed1Active)
-    LED_BLINK(P8OUT, BIT1, 100, isLed2Active)
-    LED_BLINK(P8OUT, BIT2, 150, isLed3Active)
+        CLEAR_BIT(TA2CCTL0, CCIE); // Stop timer compare
+    }
+}
+
+// Timer2 COMP1 interrupt service routine
+#pragma vector=TIMER2_A1_VECTOR
+__interrupt void TIMER2_A1_ISR(void)
+{
+    // TODO: Control 250, 500, 1000 ms?
+    LED_BLINK(P1OUT, BIT0, 250, isLed1Active)
+    LED_BLINK(P8OUT, BIT1, 500, isLed2Active)
+    LED_BLINK(P8OUT, BIT2, 1000, isLed3Active)
 }
 
 //-----------------------------------------
 //  Miscellaneous
 //-----------------------------------------
+
+void Delay(uint32_t count)
+{
+    static volatile uint32_t i;
+    for(i = count; i; i--);
+}
 
 void Animation(void)
 {
