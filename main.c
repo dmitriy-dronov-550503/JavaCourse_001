@@ -81,18 +81,18 @@ int main(void)
 #pragma vector=PORT2_VECTOR
 __interrupt void PORT2_ISR(void)
 {
-    static uint16_t bounceGuard = 0;
+    static uint16_t bounceGuardCount = BOUNCE_TIMEOUT;
 
     if (!IS_BIT_SET(P2IN, BIT2))
     {
-        bounceGuard = (bounceGuard << 1) + 1;
+        bounceGuard--;
 
-        if (bounceGuard == UINT16_MAX)
+        if (bounceGuardCount == 0)
         {
             if (!IS_BIT_SET(TA2CCTL0, CCIE))
             {
                 // Initialize decrement counter after the first button press
-                timeLeft = 100;             // 1 second (10 * 100 ms) timeout to press button
+                timeLeft = 1000;    // 1 second (1000 ms) timeout to press the button
                 buttonPressCount = 1;
                 SET_BIT(TA2CCTL0, CCIE);    // Start timer compare
             }
@@ -101,17 +101,15 @@ __interrupt void PORT2_ISR(void)
                 // While timer is working counting press times
                 buttonPressCount++;
             }
-
-            bounceGuard = 0;
         }
     }
     else
     {
-        bounceGuard = 0;
+        // Restore bounce guard count
+        bounceGuardCount = BOUNCE_TIMEOUT;
+        // Reset interrupt flag
+        CLEAR_BIT(P2IFG, BIT2);
     }
-
-    // Reset interrupt flag
-    CLEAR_BIT(P2IFG, BIT2);
 }
 
 // Timer2 COMP0 interrupt service routine
@@ -140,12 +138,7 @@ __interrupt void TIMER2_A0_ISR(void)
 
         CLEAR_BIT(TA2CCTL0, CCIE); // Stop timer compare
     }
-}
 
-// Timer2 COMP1 interrupt service routine
-#pragma vector=TIMER2_A1_VECTOR
-__interrupt void TIMER2_A1_ISR(void)
-{
     // TODO: Control 250, 500, 1000 ms?
     LED_BLINK(P1OUT, BIT0, 250, isLed1Active)
     LED_BLINK(P8OUT, BIT1, 500, isLed2Active)
