@@ -8,6 +8,8 @@ GEN_OPTS__FLAG :=
 GEN_CMDS__FLAG := 
 
 ORDERED_OBJS += \
+"./Buttons.obj" \
+"./Timers.obj" \
 "./main.obj" \
 "../lnk_msp430f5529.cmd" \
 $(GEN_CMDS__FLAG) \
@@ -153,8 +155,8 @@ LabWork2_new.hex: $(EXE_OUTPUTS)
 # Other Targets
 clean:
 	-$(RM) $(BIN_OUTPUTS__QUOTED)$(EXE_OUTPUTS__QUOTED)
-	-$(RM) "main.obj" 
-	-$(RM) "main.d" 
+	-$(RM) "Buttons.obj" "Timers.obj" "main.obj" 
+	-$(RM) "Buttons.d" "Timers.d" "main.d" 
 	-@echo 'Finished clean'
 	-@echo ' '
 

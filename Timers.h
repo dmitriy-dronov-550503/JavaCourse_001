@@ -1,4 +1,4 @@
 #pragma once
 #include "System.h"
 
-void Button_Init();
+void Timer_Init(void);
